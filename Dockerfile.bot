@@ -4,6 +4,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+
+# >>> THÊM DÒNG NÀY ĐỂ DEBUG <<<
+RUN ls -R /app
+
 # Build binary bot từ thư mục cmd/bot
 # RUN go build -o bot cmd/bot/main.go
 RUN go build -o bot ./cmd/bot
