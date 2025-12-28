@@ -1,0 +1,195 @@
+basePath: /
+definitions:
+  model.AssetDetail:
+    properties:
+      current_vnd:
+        type: number
+      quantity:
+        type: number
+      rate:
+        type: number
+    type: object
+  model.ExchangeRates:
+    properties:
+      btc_vnd:
+        type: number
+      gold_diff:
+        description: Chênh lệch
+        type: number
+      gold_usd:
+        type: number
+      silver_diff:
+        description: Chênh lệch
+        type: number
+      silver_usd:
+        type: number
+      usd_vnd:
+        type: number
+      vn_silver_est:
+        type: number
+      vn_sjc:
+        type: number
+    type: object
+  model.ReportOutput:
+    properties:
+      assets:
+        additionalProperties:
+          $ref: '#/definitions/model.AssetDetail'
+        type: object
+      balance:
+        type: number
+      expense_by_category:
+        additionalProperties:
+          format: float64
+          type: number
+        type: object
+      period:
+        type: string
+      start_date:
+        type: string
+      total_assets_vnd:
+        type: number
+      total_expense:
+        type: number
+      total_income:
+        type: number
+      total_savings_vnd:
+        type: number
+    type: object
+  model.TransactionCreate:
+    properties:
+      amount:
+        description: Số tiền (Nếu là VND thì nhập tiền Việt, nếu là GOLD thì nhập
+          số chỉ/lượng)
+        example: 50000
+        type: number
+      category:
+        description: Danh mục chi tiêu (ăn uống, đi lại...)
+        example: ăn uống
+        type: string
+      currency:
+        description: 'Đơn vị tiền: VND, USD, BTC, GOLD'
+        enum:
+        - VND
+        - USD
+        - BTC
+        - GOLD
+        example: VND
+        type: string
+      note:
+        description: Ghi chú chi tiết
+        example: Cà phê sáng
+        type: string
+      type:
+        description: 'Loại giao dịch: thu, chi, tiet_kiem'
+        enum:
+        - thu
+        - chi
+        - tiet_kiem
+        example: chi
+        type: string
+      user_id:
+        example: "123456789"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API Server quản lý thu chi cá nhân cho Telegram Bot.
+  title: ChatBot Finance API
+  version: "1.0"
+paths:
+  /market-rates:
+    get:
+      consumes:
+      - application/json
+      description: Lấy giá Vàng, Bạc, Bitcoin, USD từ các nguồn bên ngoài (CoinGecko,
+        GoldAPI...).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ExchangeRates'
+        "500":
+          description: Lỗi không lấy được dữ liệu
+          schema:
+            type: string
+      summary: Lấy tỷ giá thị trường
+      tags:
+      - Market Data
+  /report:
+    get:
+      consumes:
+      - application/json
+      description: Tổng hợp thu/chi, tính toán số dư và định giá tài sản tích lũy
+        theo thời gian thực.
+      parameters:
+      - description: 'ID người dùng Telegram (VD: 123456789)'
+        in: query
+        name: user_id
+        required: true
+        type: string
+      - description: 'Kỳ báo cáo: ''week'' (tuần này) hoặc ''month'' (tháng này)'
+        in: query
+        name: period
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.ReportOutput'
+        "500":
+          description: Lỗi Server
+          schema:
+            type: string
+      summary: Xuất báo cáo tài chính
+      tags:
+      - Reports
+  /transactions:
+    post:
+      consumes:
+      - application/json
+      description: "API nhận dữ liệu giao dịch. Hỗ trợ tự động quy đổi tỷ giá nếu
+        dùng ngoại tệ.\n\n### \U0001F4A1 HƯỚNG DẪN TEST NHANH (Copy JSON bên dưới
+        dán vào ô Request):\n\n**1️⃣ Trường hợp: CHI TIÊU (VND)**\n```json\n{\n\"user_id\":
+        \"123456789\",\n\"type\": \"chi\",\n\"amount\": 55000,\n\"note\": \"Ăn trưa
+        cơm tấm\",\n\"category\": \"ăn uống\",\n\"currency\": \"VND\"\n}\n```\n\n**2️⃣
+        Trường hợp: THU NHẬP (VND)**\n```json\n{\n\"user_id\": \"123456789\",\n\"type\":
+        \"thu\",\n\"amount\": 15000000,\n\"note\": \"Lương tháng 12\",\n\"currency\":
+        \"VND\"\n}\n```\n\n**3️⃣ Trường hợp: TIẾT KIỆM (Vàng/Ngoại tệ)**\n_(Hệ thống
+        sẽ tự quy đổi ra VND theo tỷ giá hiện tại)_\n```json\n{\n\"user_id\": \"123456789\",\n\"type\":
+        \"tiet_kiem\",\n\"amount\": 2,\n\"note\": \"Mua 2 chỉ vàng tích trữ\",\n\"currency\":
+        \"GOLD\"\n}\n```"
+      parameters:
+      - description: Dữ liệu giao dịch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/model.TransactionCreate'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Thành công
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Lỗi dữ liệu đầu vào
+          schema:
+            type: string
+        "500":
+          description: Lỗi Server
+          schema:
+            type: string
+      summary: Tạo giao dịch mới
+      tags:
+      - Transactions
+swagger: "2.0"

@@ -11,8 +11,16 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger"
+
+	_ "go-finance/docs"
 )
 
+// @title           ChatBot Finance API
+// @version         1.0
+// @description     API Server quản lý thu chi cá nhân cho Telegram Bot.
+// @host            localhost:8080
+// @BasePath        /
 func main() {
 	_ = godotenv.Load()
 
@@ -46,6 +54,8 @@ func main() {
 	mux.HandleFunc("GET /report", h.GenerateReport)
 	mux.HandleFunc("GET /market-rates", h.GetPrices)
 	mux.HandleFunc("GET /users", h.GetUsers)
+
+	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
 
 	// 4. Start Server
 	port := os.Getenv("PORT")

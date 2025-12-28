@@ -24,7 +24,54 @@ func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-// CreateTransaction nhận JSON từ Bot
+// CreateTransaction godoc
+// @Summary      Tạo giao dịch mới
+// @Description  API nhận dữ liệu giao dịch. Hỗ trợ tự động quy đổi tỷ giá nếu dùng ngoại tệ.
+// @Description
+// @Description  ### 💡 HƯỚNG DẪN TEST NHANH (Copy JSON bên dưới dán vào ô Request):
+// @Description
+// @Description  **1️⃣ Trường hợp: CHI TIÊU (VND)**
+// @Description  ```json
+// @Description  {
+// @Description      "user_id": "123456789",
+// @Description      "type": "chi",
+// @Description      "amount": 55000,
+// @Description      "note": "Ăn trưa cơm tấm",
+// @Description      "category": "ăn uống",
+// @Description      "currency": "VND"
+// @Description  }
+// @Description  ```
+// @Description
+// @Description  **2️⃣ Trường hợp: THU NHẬP (VND)**
+// @Description  ```json
+// @Description  {
+// @Description      "user_id": "123456789",
+// @Description      "type": "thu",
+// @Description      "amount": 15000000,
+// @Description      "note": "Lương tháng 12",
+// @Description      "currency": "VND"
+// @Description  }
+// @Description  ```
+// @Description
+// @Description  **3️⃣ Trường hợp: TIẾT KIỆM (Vàng/Ngoại tệ)**
+// @Description  _(Hệ thống sẽ tự quy đổi ra VND theo tỷ giá hiện tại)_
+// @Description  ```json
+// @Description  {
+// @Description      "user_id": "123456789",
+// @Description      "type": "tiet_kiem",
+// @Description      "amount": 2,
+// @Description      "note": "Mua 2 chỉ vàng tích trữ",
+// @Description      "currency": "GOLD"
+// @Description  }
+// @Description  ```
+// @Tags         Transactions
+// @Accept       json
+// @Produce      json
+// @Param        payload  body      model.TransactionCreate  true  "Dữ liệu giao dịch"
+// @Success      200      {object}  map[string]string        "Thành công"
+// @Failure      400      {string}  string                   "Lỗi dữ liệu đầu vào"
+// @Failure      500      {string}  string                   "Lỗi Server"
+// @Router       /transactions [post]
 func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	var req model.TransactionCreate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -72,7 +119,17 @@ func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Reques
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// GenerateReport tạo báo cáo
+// GenerateReport godoc
+// @Summary      Xuất báo cáo tài chính
+// @Description  Tổng hợp thu/chi, tính toán số dư và định giá tài sản tích lũy theo thời gian thực.
+// @Tags         Reports
+// @Accept       json
+// @Produce      json
+// @Param        user_id  query     string  true  "ID người dùng Telegram (VD: 123456789)"
+// @Param        period   query     string  true  "Kỳ báo cáo: 'week' (tuần này) hoặc 'month' (tháng này)"
+// @Success      200      {object}  model.ReportOutput
+// @Failure      500      {string}  string  "Lỗi Server"
+// @Router       /report [get]
 func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	period := r.URL.Query().Get("period")
@@ -144,7 +201,15 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 	jsonResponse(w, http.StatusOK, report)
 }
 
-// GetPrices trả về giá vàng/bạc
+// GetPrices godoc
+// @Summary      Lấy tỷ giá thị trường
+// @Description  Lấy giá Vàng, Bạc, Bitcoin, USD từ các nguồn bên ngoài (CoinGecko, GoldAPI...).
+// @Tags         Market Data
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  model.ExchangeRates
+// @Failure      500  {string}  string  "Lỗi không lấy được dữ liệu"
+// @Router       /market-rates [get]
 func (h *FinanceHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
 	rates, err := service.GetMetalPrices()
 	if err != nil {

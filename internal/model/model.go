@@ -17,12 +17,22 @@ type Transaction struct {
 
 // TransactionCreate DTO cho input
 type TransactionCreate struct {
-	UserID   string  `json:"user_id"`
-	Type     string  `json:"type"`
-	Amount   float64 `json:"amount"`
-	Note     string  `json:"note"`
-	Currency string  `json:"currency"` // Mặc định VND
-	Category string  `json:"category"`
+	UserID string `json:"user_id" example:"123456789"`
+
+	// Loại giao dịch: thu, chi, tiet_kiem
+	Type string `json:"type" example:"chi" enums:"thu,chi,tiet_kiem"`
+
+	// Số tiền (Nếu là VND thì nhập tiền Việt, nếu là GOLD thì nhập số chỉ/lượng)
+	Amount float64 `json:"amount" example:"50000"`
+
+	// Ghi chú chi tiết
+	Note string `json:"note" example:"Cà phê sáng"`
+
+	// Đơn vị tiền: VND, USD, BTC, GOLD
+	Currency string `json:"currency" example:"VND" enums:"VND,USD,BTC,GOLD"`
+
+	// Danh mục chi tiêu (ăn uống, đi lại...)
+	Category string `json:"category" example:"ăn uống"`
 }
 
 // ReportOutput DTO cho báo cáo
