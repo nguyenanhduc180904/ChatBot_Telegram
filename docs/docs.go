@@ -275,9 +275,9 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080",
+	Host:             "",
 	BasePath:         "/",
-	Schemes:          []string{},
+	Schemes:          []string{"https", "http"},
 	Title:            "ChatBot Finance API",
 	Description:      "API Server quản lý thu chi cá nhân cho Telegram Bot.",
 	InfoInstanceName: "swagger",

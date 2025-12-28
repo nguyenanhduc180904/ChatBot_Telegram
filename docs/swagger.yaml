@@ -92,7 +92,6 @@ definitions:
         example: "123456789"
         type: string
     type: object
-host: localhost:8080
 info:
   contact: {}
   description: API Server quản lý thu chi cá nhân cho Telegram Bot.
@@ -192,4 +191,7 @@ paths:
       summary: Tạo giao dịch mới
       tags:
       - Transactions
+schemes:
+- https
+- http
 swagger: "2.0"

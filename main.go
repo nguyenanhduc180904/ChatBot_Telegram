@@ -19,8 +19,8 @@ import (
 // @title           ChatBot Finance API
 // @version         1.0
 // @description     API Server quản lý thu chi cá nhân cho Telegram Bot.
-// @host            localhost:8080
 // @BasePath        /
+// @schemes   https http
 func main() {
 	_ = godotenv.Load()
 
@@ -55,7 +55,9 @@ func main() {
 	mux.HandleFunc("GET /market-rates", h.GetPrices)
 	mux.HandleFunc("GET /users", h.GetUsers)
 
-	mux.HandleFunc("/swagger/", httpSwagger.WrapHandler)
+	mux.HandleFunc("/swagger/", httpSwagger.Handler(
+		httpSwagger.URL("doc.json"),
+	))
 
 	// 4. Start Server
 	port := os.Getenv("PORT")
@@ -63,5 +65,20 @@ func main() {
 		port = "8080"
 	}
 	fmt.Println("Server running on port " + port)
-	http.ListenAndServe(":"+port, mux)
+	http.ListenAndServe(":"+port, enableCORS(mux))
+}
+
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
