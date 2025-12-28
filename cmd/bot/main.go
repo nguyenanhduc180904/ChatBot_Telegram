@@ -19,6 +19,23 @@ import (
 var apiURL string
 
 func main() {
+	// 1. >>> GIỮ KẾT NỐI VỚI RENDER <<<
+	// Chạy một HTTP server giả trên cổng 8080 (hoặc cổng Render cung cấp)
+	go func() {
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		log.Printf("Listening on port %s to satisfy Render health check...", port)
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("Bot is running!"))
+		})
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Fatal(err)
+		}
+	}()
+	// ----------------------------------------------------
+
 	_ = godotenv.Load()
 	token := os.Getenv("TELEGRAM_TOKEN")
 	apiURL = os.Getenv("API_URL")
