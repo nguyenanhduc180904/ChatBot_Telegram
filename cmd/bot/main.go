@@ -11,130 +11,15 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
 
 var apiURL string
-
-// func main() {
-// 	// 1. >>> GIỮ KẾT NỐI VỚI RENDER <<<
-// 	// Chạy một HTTP server giả trên cổng 8080 (hoặc cổng Render cung cấp)
-// 	go func() {
-// 		port := os.Getenv("PORT")
-// 		if port == "" {
-// 			port = "8080"
-// 		}
-// 		log.Printf("Listening on port %s to satisfy Render health check...", port)
-// 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-// 			w.Write([]byte("Bot is running!"))
-// 		})
-// 		if err := http.ListenAndServe(":"+port, nil); err != nil {
-// 			log.Fatal(err)
-// 		}
-// 	}()
-// 	// ----------------------------------------------------
-
-// 	_ = godotenv.Load()
-// 	token := os.Getenv("TELEGRAM_TOKEN")
-// 	apiURL = os.Getenv("API_URL")
-// 	if apiURL == "" {
-// 		apiURL = "http://localhost:8080"
-// 	}
-
-// 	bot, err := tgbotapi.NewBotAPI(token)
-// 	if err != nil {
-// 		log.Panic(err)
-// 	}
-// 	bot.Debug = true
-// 	log.Printf("Authorized on account %s", bot.Self.UserName)
-
-// 	// Xóa webhook cũ để chuyển sang chế độ Polling
-// 	_, err = bot.Request(tgbotapi.DeleteWebhookConfig{})
-// 	if err != nil {
-// 		log.Printf("Lỗi xóa webhook: %v", err)
-// 	}
-// 	// -------------------------
-
-// 	u := tgbotapi.NewUpdate(0)
-// 	u.Timeout = 60
-// 	updates := bot.GetUpdatesChan(u)
-
-// 	for update := range updates {
-// 		if update.Message == nil {
-// 			continue
-// 		}
-
-// 		text := update.Message.Text
-// 		userID := fmt.Sprintf("%d", update.Message.From.ID)
-
-// 		// 1. Lệnh Báo cáo
-// 		if strings.Contains(strings.ToLower(text), "báo cáo") {
-// 			handleReport(bot, update.Message.Chat.ID, userID)
-// 			continue
-// 		}
-
-// 		// 2. Lệnh Giá cả (TÁCH RIÊNG VÀNG VÀ BẠC)
-// 		if strings.Contains(strings.ToLower(text), "giá vàng") {
-// 			handlePrice(bot, update.Message.Chat.ID, "gold")
-// 			continue
-// 		}
-// 		if strings.Contains(strings.ToLower(text), "giá bạc") {
-// 			handlePrice(bot, update.Message.Chat.ID, "silver")
-// 			continue
-// 		}
-
-// 		// 3. Xử lý nhập liệu
-// 		txs, _ := service.ParseTransactionText(text)
-
-// 		// CẬP NHẬT: Thay đổi thông báo khi không hiểu lệnh
-// 		if len(txs) == 0 {
-// 			helpMsg := `Không hiểu lệnh. Vui lòng nhập đúng cú pháp.
-// 			👋 Chào bạn! Tôi là Bot quản lý tài chính.
-
-// 			📖 *HƯỚNG DẪN SỬ DỤNG:*
-
-// 			1️⃣ *Ghi chép Thu / Chi (VND):*
-// 			_(Bắt buộc phải kèm lý do)_
-// 			- chi 50k ăn trưa
-// 			- thu 10m lương t10
-// 			- -10k trà đá
-// 			- +1,5m tiền lãi bank
-
-// 			2️⃣ *Ghi chép Tiết kiệm / Đầu tư:*
-// 			_(Chỉ nhập số tiền & đơn vị, KHÔNG ghi chú)_
-// 			- tk 2m
-// 			- tiết kiệm 100 usd
-// 			- tk 0.1 btc
-// 			- tk 5 chỉ vàng
-
-// 			3️⃣ *Tiện ích khác:*
-// 			- giá vàng, giá bạc
-// 			- báo cáo`
-
-// 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, helpMsg)
-// 			msg.ParseMode = "Markdown" // Kích hoạt in đậm
-// 			bot.Send(msg)
-// 			continue
-// 		}
-
-// 		// Gọi API để lưu từng transaction
-// 		count := 0
-// 		var details []string
-// 		for _, tx := range txs {
-// 			tx.UserID = userID
-// 			if sendTransactionToAPI(tx) {
-// 				count++
-// 				details = append(details, fmt.Sprintf("%s %.2f %s", tx.Type, tx.Amount, tx.Currency))
-// 			}
-// 		}
-
-// 		reply := fmt.Sprintf("Đã lưu %d giao dịch:\n%s", count, strings.Join(details, "\n"))
-// 		bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, reply))
-// 	}
-// }
 
 func main() {
 	// Health check cho Render
@@ -175,6 +60,8 @@ func main() {
 		log.Printf("Lỗi xóa webhook: %v", err)
 	}
 
+	// Bắt đầu chạy lịch trình gửi tin 7h sáng/tối
+	go startScheduler(bot)
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := bot.GetUpdatesChan(u)
@@ -204,10 +91,38 @@ func main() {
 			continue
 		}
 
+		// Test gửi thông báo định kỳ
+		if text == "/test_noti" {
+			bot.Send(tgbotapi.NewMessage(chatID, "🚀 Đang chạy thử tính năng gửi Noti..."))
+			sendDailyUpdate(bot)
+			continue
+		}
+
 		txs, _ := service.ParseTransactionText(text)
 		if len(txs) == 0 {
 			// (Giữ nguyên phần helpMsg của bạn ở đây...)
-			helpMsg := "⚠️ Không hiểu lệnh. Vui lòng nhập đúng cú pháp (VD: chi 50k an sang)."
+			helpMsg := `Không hiểu lệnh. Vui lòng nhập đúng cú pháp.
+					👋 Chào bạn! Tôi là Bot quản lý tài chính.
+
+					📖 *HƯỚNG DẪN SỬ DỤNG:*
+
+					1️⃣ *Ghi chép Thu / Chi (VND):*
+					_(Bắt buộc phải kèm lý do)_
+					- chi 50k ăn trưa
+					- thu 10m lương t10
+					- -10k trà đá
+					- +1,5m tiền lãi bank
+
+					2️⃣ *Ghi chép Tiết kiệm / Đầu tư:*
+					_(Chỉ nhập số tiền & đơn vị, KHÔNG ghi chú)_
+					- tk 2m
+					- tiết kiệm 100 usd
+					- tk 0.1 btc
+					- tk 5 chỉ vàng
+
+					3️⃣ *Tiện ích khác:*
+					- giá vàng, giá bạc
+					- báo cáo`
 			bot.Send(tgbotapi.NewMessage(chatID, helpMsg))
 			continue
 		}
@@ -233,17 +148,6 @@ func main() {
 }
 
 // --- LOGIC THU, CHI, TIẾT KIỆM ---
-// Hàm gửi transaction lên API
-// func sendTransactionToAPI(t model.TransactionCreate) bool {
-// 	data, _ := json.Marshal(t)
-// 	resp, err := http.Post(apiURL+"/transactions", "application/json", bytes.NewBuffer(data))
-// 	if err != nil {
-// 		return false
-// 	}
-// 	defer resp.Body.Close()
-// 	return resp.StatusCode == 200
-// }
-
 func sendTransactionToAPI(t model.TransactionCreate) bool {
 	data, _ := json.Marshal(t)
 	resp, err := http.Post(apiURL+"/transactions", "application/json", bytes.NewBuffer(data))
@@ -264,32 +168,6 @@ func sendTransactionToAPI(t model.TransactionCreate) bool {
 }
 
 // --- LOGIC BÁO CÁO ---
-// bot trả về báo cáo tuần/tháng
-// func handleReport(bot *tgbotapi.BotAPI, chatID int64, userID string) {
-// 	// 1. Lấy dữ liệu TUẦN
-// 	weekReport, err := getReportData(userID, "week")
-// 	if err != nil {
-// 		bot.Send(tgbotapi.NewMessage(chatID, "Lỗi lấy báo cáo tuần"))
-// 		return
-// 	}
-
-// 	// 2. Lấy dữ liệu THÁNG
-// 	monthReport, err := getReportData(userID, "month")
-// 	if err != nil {
-// 		bot.Send(tgbotapi.NewMessage(chatID, "Lỗi lấy báo cáo tháng"))
-// 		return
-// 	}
-
-// 	// 3. Ghép nội dung
-// 	finalMsg := "📊 BÁO CÁO TÀI CHÍNH\n\n"
-// 	finalMsg += buildSectionReport("Tuần này", weekReport)
-// 	finalMsg += "\n" + strings.Repeat("-", 20) + "\n\n" // Đường kẻ ngang phân cách
-// 	finalMsg += buildSectionReport("Tháng này", monthReport)
-
-// 	msg := tgbotapi.NewMessage(chatID, finalMsg)
-// 	bot.Send(msg)
-// }
-
 func handleReport(bot *tgbotapi.BotAPI, chatID int64, userID string) {
 	// [Update] Thêm log lỗi vào đây
 	weekReport, err := getReportData(userID, "week")
@@ -316,20 +194,6 @@ func handleReport(bot *tgbotapi.BotAPI, chatID int64, userID string) {
 }
 
 // Hàm gọi API lấy báo cáo
-// func getReportData(userID string, period string) (*model.ReportOutput, error) {
-// 	resp, err := http.Get(fmt.Sprintf("%s/report?user_id=%s&period=%s", apiURL, userID, period))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-
-// 	var r model.ReportOutput
-// 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-// 		return nil, err
-// 	}
-// 	return &r, nil
-// }
-
 func getReportData(userID string, period string) (*model.ReportOutput, error) {
 	url := fmt.Sprintf("%s/report?user_id=%s&period=%s", apiURL, userID, period)
 	resp, err := http.Get(url)
@@ -444,16 +308,15 @@ func handlePrice(bot *tgbotapi.BotAPI, chatID int64, requestType string) {
 
 		msgBuf.WriteString("🏆 VÀNG (GOLD)\n")
 		msgBuf.WriteString(fmt.Sprintf("• Thế giới: %s USD/oz\n", formatUSD(r.GoldUSD)))
-		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/lượng\n", formatCurrency(convertedGold)))
-		msgBuf.WriteString(fmt.Sprintf("• SJC (Thực tế): %s đ/lượng\n", formatCurrency(r.VnSJC)))
+		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/cây\n", formatCurrency(convertedGold)))
+		msgBuf.WriteString(fmt.Sprintf("• SJC (Thực tế): %s đ/cây\n", formatCurrency(r.VnSJC*10)))
 
 		// Chênh lệch Vàng
-		diffGold := r.VnSJC - convertedGold
 		statusGold := "VN cao hơn"
-		if diffGold < 0 {
+		if r.GoldDiff < 0 {
 			statusGold = "VN thấp hơn"
 		}
-		msgBuf.WriteString(fmt.Sprintf("⚖️ Chênh lệch: %s %s đ", statusGold, formatCurrency(math.Abs(diffGold))))
+		msgBuf.WriteString(fmt.Sprintf("⚖️ Chênh lệch: %s %s đ", statusGold, formatCurrency(math.Abs(r.GoldDiff))))
 	}
 
 	// SECTION: BẠC
@@ -462,8 +325,8 @@ func handlePrice(bot *tgbotapi.BotAPI, chatID int64, requestType string) {
 
 		msgBuf.WriteString("ww BẠC (SILVER)\n")
 		msgBuf.WriteString(fmt.Sprintf("• Thế giới: %s USD/oz\n", formatUSD(r.SilverUSD)))
-		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/lượng\n", formatCurrency(convertedSilver)))
-		msgBuf.WriteString(fmt.Sprintf("• VN (Thực tế): %s đ/lượng\n", formatCurrency(r.VnSilver)))
+		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/cây\n", formatCurrency(convertedSilver)))
+		msgBuf.WriteString(fmt.Sprintf("• VN (Thực tế): %s đ/cây\n", formatCurrency(r.VnSilver)))
 
 		// Chênh lệch Bạc
 		diffSilver := r.VnSilver - convertedSilver
@@ -497,4 +360,95 @@ func formatUSD(amount float64) string {
 		}
 	}
 	return string(result) + "." + decimalPart
+}
+
+// --- LOGIC SCHEDULER GỬI TIN NHẮN ĐỊNH KỲ ---
+func startScheduler(bot *tgbotapi.BotAPI) {
+	// Định nghĩa múi giờ Việt Nam (UTC+7)
+	loc := time.FixedZone("ICT", 7*3600)
+
+	// Kiểm tra mỗi phút một lần
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for t := range ticker.C {
+		// Chuyển về giờ VN
+		localTime := t.In(loc)
+		hour := localTime.Hour()
+		minute := localTime.Minute()
+
+		// Nếu là 7:00 hoặc 19:00 (7h tối)
+		if (hour == 7 || hour == 19) && minute == 0 {
+			log.Println("[SCHEDULER] Bắt đầu gửi thông báo định kỳ...")
+			sendDailyUpdate(bot)
+			// Ngủ 65 giây để tránh gửi lặp lại trong cùng 1 phút đó
+			time.Sleep(65 * time.Second)
+		}
+	}
+}
+
+func sendDailyUpdate(bot *tgbotapi.BotAPI) {
+	// 1. Lấy dữ liệu giá cả
+	resp, err := http.Get(apiURL + "/market-rates")
+	if err != nil {
+		log.Printf("[SCHEDULER ERROR] Không thể lấy giá: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var r model.ExchangeRates
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		log.Printf("[SCHEDULER ERROR] Lỗi decode giá: %v", err)
+		return
+	}
+
+	// 2. Soạn nội dung tin nhắn
+	const OunceToTael = 1.20565
+	goldVND := r.GoldUSD * r.UsdVND * OunceToTael
+	silverVND := r.SilverUSD * r.UsdVND * OunceToTael
+
+	msgContent := fmt.Sprintf(
+		"🔔 *BẢN TIN THỊ TRƯỜNG (7H)* 🔔\n\n"+
+			"🇺🇸 *USD:* %s VNĐ\n"+
+			"🏆 *Vàng (TG):* %s VNĐ/cây\n"+
+			"   _(Vàng SJC: %s VNĐ/cây)_\n"+
+			"ww *Bạc (TG):* %s VNĐ/cây\n"+
+			"🅱️ *Bitcoin:* %s VNĐ\n",
+		formatCurrency(r.UsdVND),
+		formatCurrency(goldVND),
+		formatCurrency(r.VnSJC*10),
+		formatCurrency(silverVND),
+		formatCurrency(r.BtcVND),
+	)
+
+	// 3. Lấy danh sách Users
+	userResp, err := http.Get(apiURL + "/users")
+	if err != nil {
+		log.Printf("[SCHEDULER ERROR] Không thể lấy user list: %v", err)
+		return
+	}
+	defer userResp.Body.Close()
+
+	var userIDs []string
+	if err := json.NewDecoder(userResp.Body).Decode(&userIDs); err != nil {
+		log.Printf("[SCHEDULER ERROR] Lỗi decode user list: %v", err)
+		return
+	}
+
+	// 4. Gửi tin nhắn cho từng người
+	count := 0
+	for _, uidStr := range userIDs {
+		// Chuyển uid string -> int64
+		chatID, err := strconv.ParseInt(uidStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		msg := tgbotapi.NewMessage(chatID, msgContent)
+		msg.ParseMode = "Markdown"
+		if _, err := bot.Send(msg); err == nil {
+			count++
+		}
+	}
+	log.Printf("[SCHEDULER] Đã gửi thông báo cho %d người dùng.", count)
 }

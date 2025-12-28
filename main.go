@@ -45,6 +45,7 @@ func main() {
 	mux.HandleFunc("POST /transactions", h.CreateTransaction) // RESTful style
 	mux.HandleFunc("GET /report", h.GenerateReport)
 	mux.HandleFunc("GET /market-rates", h.GetPrices)
+	mux.HandleFunc("GET /users", h.GetUsers)
 
 	// 4. Start Server
 	port := os.Getenv("PORT")

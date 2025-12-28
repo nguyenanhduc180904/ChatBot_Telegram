@@ -76,3 +76,23 @@ func (s *PostgresStore) GetByPeriod(userID string, startDate time.Time) ([]model
 	}
 	return txs, nil
 }
+
+// GetAllUserIDs lấy danh sách tất cả user_id duy nhất
+func (s *PostgresStore) GetAllUserIDs() ([]string, error) {
+	query := `SELECT DISTINCT user_id FROM transactions`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			continue
+		}
+		userIDs = append(userIDs, uid)
+	}
+	return userIDs, nil
+}

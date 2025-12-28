@@ -154,11 +154,22 @@ func (h *FinanceHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const OunceToTael = 1.20565
-	worldGoldVND := rates.GoldUSD * rates.UsdVND * OunceToTael
-	rates.GoldDiff = rates.VnSJC - worldGoldVND
+	worldGoldVND := (rates.GoldUSD * rates.UsdVND * OunceToTael)
+	rates.GoldDiff = rates.VnSJC*10 - worldGoldVND
 
 	worldSilverVND := rates.SilverUSD * rates.UsdVND * OunceToTael
 	rates.SilverDiff = rates.VnSilver - worldSilverVND
 
 	jsonResponse(w, http.StatusOK, rates)
+}
+
+// GetUsers trả về danh sách user_id
+func (h *FinanceHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
+	userIDs, err := h.Store.GetAllUserIDs()
+	if err != nil {
+		log.Printf("[API ERROR] GetUsers failed: %v", err)
+		http.Error(w, "Error fetching users", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, userIDs)
 }

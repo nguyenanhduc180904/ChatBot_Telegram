@@ -58,7 +58,7 @@ func GetMetalPrices() (model.ExchangeRates, error) {
 			Sell float64 `json:"sell"`
 		}
 		if json.NewDecoder(resp.Body).Decode(&d) == nil {
-			rates.VnSJC = d.Sell
+			rates.VnSJC = d.Sell / 10
 		}
 	}
 
