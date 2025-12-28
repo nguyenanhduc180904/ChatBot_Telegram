@@ -5,6 +5,7 @@ import (
 	"go-finance/internal/model"
 	"go-finance/internal/service"
 	"go-finance/internal/store"
+	"log"
 	"net/http"
 	"time"
 )
@@ -27,17 +28,21 @@ func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
 func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	var req model.TransactionCreate
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[API ERROR] Decode JSON failed: %v", err) // [Update] Log lỗi input
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
 
-	// Chuyển đổi tỷ giá nếu không phải VND (Logic đơn giản hóa, thực tế cần gọi Service lấy giá live)
-	// Ở đây giả định Bot gửi amount là số lượng gốc (ví dụ 0.1 BTC)
+	log.Printf("[API INFO] Received transaction request: %+v", req) // [Update] Log request nhận được
+
 	convertedAmount := req.Amount
 	originalAmount := req.Amount
 
-	// Lấy tỷ giá hiện tại để quy đổi ra VND lưu vào DB cho thống kê Cashflow
-	rates, _ := service.GetMetalPrices()
+	rates, err := service.GetMetalPrices()
+	if err != nil {
+		log.Printf("[API WARN] Could not fetch metal prices: %v", err) // [Update] Log cảnh báo
+	}
+
 	switch req.Currency {
 	case "USD":
 		convertedAmount = req.Amount * rates.UsdVND
@@ -46,7 +51,6 @@ func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Reques
 	case "BTC":
 		convertedAmount = req.Amount * rates.BtcVND
 	default:
-		// VND
 		originalAmount = req.Amount
 	}
 
@@ -61,6 +65,7 @@ func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.Store.Create(t); err != nil {
+		log.Printf("[API ERROR] DB Create failed: %v", err) // [Update] Log lỗi DB
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -72,28 +77,28 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 	userID := r.URL.Query().Get("user_id")
 	period := r.URL.Query().Get("period")
 
+	log.Printf("[API INFO] GenerateReport for User: %s, Period: %s", userID, period) // [Update]
+
 	now := time.Now()
 	var startDate time.Time
 
 	if period == "week" {
-		// Lấy đầu tuần (T2)
 		weekday := int(now.Weekday())
 		if weekday == 0 {
 			weekday = 7
 		}
 		startDate = now.AddDate(0, 0, -weekday+1)
 	} else {
-		// Đầu tháng
 		startDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	}
 
 	txs, err := h.Store.GetByPeriod(userID, startDate)
 	if err != nil {
+		log.Printf("[API ERROR] DB GetByPeriod failed: %v", err) // [Update]
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Logic tổng hợp báo cáo
 	report := model.ReportOutput{
 		Period:            period,
 		StartDate:         startDate.Format("2006-01-02"),
@@ -112,13 +117,9 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 			report.ExpenseByCategory[t.Category] += t.Amount
 		case "tiet_kiem":
 			report.TotalSavingsVND += t.Amount
-
-			// Cộng dồn tài sản
 			if t.Currency != "VND" {
 				asset := report.Assets[t.Currency]
 				asset.Quantity += t.OriginalAmount
-
-				// Cập nhật giá trị hiện tại theo tỷ giá mới nhất
 				rate := 1.0
 				switch t.Currency {
 				case "USD":
@@ -128,7 +129,6 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 				case "BTC":
 					rate = currentRates.BtcVND
 				}
-
 				asset.Rate = rate
 				asset.CurrentVND = asset.Quantity * rate
 				report.Assets[t.Currency] = asset
@@ -136,7 +136,6 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Tính tổng giá trị tài sản
 	for _, a := range report.Assets {
 		report.TotalAssetsVND += a.CurrentVND
 	}
@@ -149,19 +148,15 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 func (h *FinanceHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
 	rates, err := service.GetMetalPrices()
 	if err != nil {
+		log.Printf("[API ERROR] GetPrices failed: %v", err) // [Update]
 		http.Error(w, "Error fetching prices", http.StatusInternalServerError)
 		return
 	}
 
-	// Constants
-	const OunceToTael = 1.20565 // 1 Ounce quốc tế = 1.20565 Lượng
-
-	// 1. Tính toán Vàng (GOLD)
-	// Giá thế giới quy đổi (VNĐ/Lượng) = Giá $ * Tỷ giá USD * Hệ số chuyển đổi
+	const OunceToTael = 1.20565
 	worldGoldVND := rates.GoldUSD * rates.UsdVND * OunceToTael
 	rates.GoldDiff = rates.VnSJC - worldGoldVND
 
-	// 2. Tính toán Bạc (SILVER)
 	worldSilverVND := rates.SilverUSD * rates.UsdVND * OunceToTael
 	rates.SilverDiff = rates.VnSilver - worldSilverVND
 
