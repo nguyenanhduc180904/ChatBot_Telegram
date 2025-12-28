@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go-finance/internal/model"
 	"go-finance/internal/service"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -139,12 +140,25 @@ func main() {
 // Hàm gửi transaction lên API
 func sendTransactionToAPI(t model.TransactionCreate) bool {
 	data, _ := json.Marshal(t)
+	// In ra log để debug URL
+	log.Printf("Đang gọi API: %s/transactions", apiURL)
+
 	resp, err := http.Post(apiURL+"/transactions", "application/json", bytes.NewBuffer(data))
 	if err != nil {
+		// [QUAN TRỌNG] In lỗi mạng (ví dụ: connection refused, timeout...)
+		log.Printf("❌ Lỗi kết nối API: %v", err)
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == 200
+
+	if resp.StatusCode != 200 {
+		// [QUAN TRỌNG] In lỗi từ Server (ví dụ: 404, 500...)
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ API trả về lỗi: Code %d - Body: %s", resp.StatusCode, string(body))
+		return false
+	}
+
+	return true
 }
 
 // --- LOGIC BÁO CÁO ---
@@ -176,11 +190,21 @@ func handleReport(bot *tgbotapi.BotAPI, chatID int64, userID string) {
 
 // Hàm gọi API lấy báo cáo
 func getReportData(userID string, period string) (*model.ReportOutput, error) {
-	resp, err := http.Get(fmt.Sprintf("%s/report?user_id=%s&period=%s", apiURL, userID, period))
+	url := fmt.Sprintf("%s/report?user_id=%s&period=%s", apiURL, userID, period)
+	log.Printf("Đang lấy báo cáo từ: %s", url) // Log URL
+
+	resp, err := http.Get(url)
 	if err != nil {
+		log.Printf("❌ Lỗi mạng khi lấy báo cáo: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ API báo cáo lỗi: Code %d - %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error: %d", resp.StatusCode)
+	}
 
 	var r model.ReportOutput
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
