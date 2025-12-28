@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      PORT: 8080
+    ports:
+      - "8080:8080"
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      API_URL: "http://api:8080"
+    depends_on:
+      - api

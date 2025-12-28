@@ -1,0 +1,15 @@
+.env
+main
+bot
+
+# Các tệp hệ thống & IDE
+.DS_Store
+.vscode/
+.idea/
+
+# Các tệp thực thi khác của Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
