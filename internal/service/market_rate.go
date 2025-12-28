@@ -63,10 +63,13 @@ func GetMetalPrices() (model.ExchangeRates, error) {
 	}
 
 	// 5. [CẬP NHẬT] Bitcoin Rate (CoinGecko Direct VND)
-	if resp, err := client.Get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=vnd"); err == nil {
+	// CoinGecko rất hay chặn request từ Cloud Server, nên cần thêm User-Agent giả lập trình duyệt
+	req, _ := http.NewRequest("GET", "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=vnd", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)") // Giả lập Browser
+
+	if resp, err := client.Do(req); err == nil {
 		defer resp.Body.Close()
 
-		// Định nghĩa struct khớp với JSON của CoinGecko
 		var d struct {
 			Bitcoin struct {
 				VND float64 `json:"vnd"`
@@ -74,8 +77,10 @@ func GetMetalPrices() (model.ExchangeRates, error) {
 		}
 
 		if json.NewDecoder(resp.Body).Decode(&d) == nil {
-			// Gán trực tiếp giá VND lấy được từ API
-			rates.BtcVND = d.Bitcoin.VND
+			// CHỈ CẬP NHẬT NẾU GIÁ TRỊ > 0
+			if d.Bitcoin.VND > 0 {
+				rates.BtcVND = d.Bitcoin.VND
+			}
 		}
 	}
 
