@@ -56,7 +56,11 @@ func main() {
 
 	// 3. Router
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /transactions", h.CreateTransaction) // RESTful style
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Finance API is running!"))
+	})
+	mux.HandleFunc("POST /transactions", h.CreateTransaction)
 	mux.HandleFunc("GET /report", h.GenerateReport)
 	mux.HandleFunc("GET /market-rates", h.GetPrices)
 	mux.HandleFunc("GET /users", h.GetUsers)

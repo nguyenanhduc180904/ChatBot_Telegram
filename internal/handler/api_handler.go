@@ -161,7 +161,7 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 		Assets:            make(map[string]model.AssetDetail),
 	}
 
-	currentRates, _ := service.GetMetalPrices()
+	currentRates := service.GetCurrentRates()
 
 	for _, t := range txs {
 		switch t.Type {
@@ -209,12 +209,8 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 // @Failure      500  {string}  string  "Lỗi không lấy được dữ liệu"
 // @Router       /market-rates [get]
 func (h *FinanceHandler) GetPrices(w http.ResponseWriter, r *http.Request) {
-	rates, err := service.GetMetalPrices()
-	if err != nil {
-		log.Printf("[API ERROR] GetPrices failed: %v", err) // [Update]
-		http.Error(w, "Error fetching prices", http.StatusInternalServerError)
-		return
-	}
+	// [TỐI ƯU] Thay vì gọi service.GetMetalPrices() (tốn 3-5s), ta gọi service.GetCurrentRates() để lấy dữ liệu đã cache
+	rates := service.GetCurrentRates()
 
 	const OunceToTael = 1.20565
 	worldGoldVND := (rates.GoldUSD * rates.UsdVND * OunceToTael)
