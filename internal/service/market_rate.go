@@ -3,15 +3,82 @@ package service
 import (
 	"encoding/json"
 	"go-finance/internal/model"
+	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
 const OunceToTael = 1.20565
 
+var (
+	// Biến toàn cục lưu giá (Cache)
+	cachedRates model.ExchangeRates
+	// Mutex để đảm bảo an toàn khi nhiều luồng đọc/ghi cùng lúc
+	ratesMutex sync.RWMutex
+)
+
+// Hàm khởi chạy worker cập nhật giá (Gọi 1 lần duy nhất ở main.go)
+func StartPriceUpdater() {
+	// 1. Cập nhật ngay lập tức khi khởi động để có dữ liệu liền
+	updateRates()
+
+	// 2. Thiết lập định kỳ 10 phút cập nhật 1 lần
+	ticker := time.NewTicker(10 * time.Minute)
+	for range ticker.C {
+		updateRates()
+	}
+}
+
+// Hàm private thực hiện logic gọi API và lưu vào Cache
+func updateRates() {
+	log.Println("[CACHE] Đang cập nhật tỷ giá mới...")
+	newRates, err := GetMetalPrices() // Gọi hàm cũ của bạn
+	if err != nil {
+		log.Printf("[CACHE ERROR] Không thể cập nhật giá: %v", err)
+		return
+	}
+
+	// KHÓA GHI: Chỉ cho phép 1 luồng được ghi dữ liệu vào biến
+	ratesMutex.Lock()
+	cachedRates = newRates
+	ratesMutex.Unlock()
+
+	log.Println("[CACHE] Cập nhật tỷ giá thành công!")
+}
+
+// Hàm Public để các chỗ khác lấy giá từ Cache (Cực nhanh)
+func GetCurrentRates() model.ExchangeRates {
+	// KHÓA ĐỌC: Cho phép nhiều luồng đọc cùng lúc, nhưng không ai được ghi
+	ratesMutex.RLock()
+	defer ratesMutex.RUnlock()
+
+	// Nếu cache chưa có dữ liệu (lần đầu tiên), trả về giá trị mặc định an toàn
+	if cachedRates.UsdVND == 0 {
+		return model.ExchangeRates{
+			UsdVND:    25400,      // Giá USD ~25,400đ
+			GoldUSD:   2700,       // Giá Vàng TG ~$2,700/oz
+			SilverUSD: 32,         // Giá Bạc TG ~$32/oz
+			VnSJC:     8500000,    // Giá Vàng SJC ~8.5 triệu/chỉ
+			VnSilver:  1000000,    // Giá Bạc VN ước lượng ~1 triệu/cây (lượng)
+			BtcVND:    2500000000, // Bitcoin ~2.5 tỷ VND
+			// GoldDiff và SilverDiff để 0 cũng được vì chỉ dùng để hiển thị báo cáo
+		}
+	}
+
+	return cachedRates
+}
+
 // GetMetalPrices fetches external APIs
 func GetMetalPrices() (model.ExchangeRates, error) {
-	rates := model.ExchangeRates{UsdVND: 25000.0, BtcVND: 2400000000.0}
+	rates := model.ExchangeRates{
+		UsdVND:    25400,
+		GoldUSD:   2700,
+		SilverUSD: 32,
+		VnSJC:     8500000,
+		VnSilver:  1000000,
+		BtcVND:    2500000000,
+	}
 
 	client := http.Client{Timeout: 5 * time.Second}
 

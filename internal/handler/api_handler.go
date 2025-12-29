@@ -85,10 +85,7 @@ func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Reques
 	convertedAmount := req.Amount
 	originalAmount := req.Amount
 
-	rates, err := service.GetMetalPrices()
-	if err != nil {
-		log.Printf("[API WARN] Could not fetch metal prices: %v", err) // [Update] Log cảnh báo
-	}
+	rates := service.GetCurrentRates()
 
 	switch req.Currency {
 	case "USD":
@@ -97,7 +94,7 @@ func (h *FinanceHandler) CreateTransaction(w http.ResponseWriter, r *http.Reques
 		convertedAmount = req.Amount * rates.VnSJC
 	case "BTC":
 		convertedAmount = req.Amount * rates.BtcVND
-	default:
+	default: // VND hoặc loại khác
 		originalAmount = req.Amount
 	}
 
@@ -144,7 +141,8 @@ func (h *FinanceHandler) GenerateReport(w http.ResponseWriter, r *http.Request) 
 		if weekday == 0 {
 			weekday = 7
 		}
-		startDate = now.AddDate(0, 0, -weekday+1)
+		monday := now.AddDate(0, 0, -weekday+1)
+		startDate = time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, monday.Location())
 	} else {
 		startDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	}

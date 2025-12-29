@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"go-finance/internal/handler"
+	"go-finance/internal/service"
 	"go-finance/internal/store"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -40,6 +42,10 @@ func main() {
 	}
 	fmt.Println("Connected to Database successfully!")
 
+	// GIữ cho bot ngủ
+	botURL := os.Getenv("BOT_URL")
+	go keepAliveService(botURL, "BOT-Service")
+
 	// 2. Init Store & Handler
 	pgStore := store.NewPostgresStore(db)
 	if err := pgStore.InitSchema(); err != nil {
@@ -58,6 +64,10 @@ func main() {
 	mux.HandleFunc("/swagger/", httpSwagger.Handler(
 		httpSwagger.URL("doc.json"),
 	))
+
+	// Chạy Goroutine cập nhật giá ngầm (Background Worker)
+	fmt.Println("Starting Price Updater Service...")
+	go service.StartPriceUpdater()
 
 	// 4. Start Server
 	port := os.Getenv("PORT")
@@ -81,4 +91,27 @@ func enableCORS(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// --- GIỮ BOT KO NGỦ ---
+func keepAliveService(targetURL string, serviceName string) {
+	if targetURL == "" {
+		log.Printf("[%s] Không có URL để ping. Bỏ qua.", serviceName)
+		return
+	}
+
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("[%s] Đã kích hoạt chế độ Keep-Alive tới: %s", serviceName, targetURL)
+
+	for range ticker.C {
+		resp, err := http.Get(targetURL)
+		if err != nil {
+			log.Printf("[%s] Ping thất bại: %v", serviceName, err)
+		} else {
+			resp.Body.Close()
+			log.Printf("[%s] Ping thành công! (Status: %s)", serviceName, resp.Status)
+		}
+	}
 }

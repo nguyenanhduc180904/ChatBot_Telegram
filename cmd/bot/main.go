@@ -22,30 +22,24 @@ import (
 var apiURL string
 
 func main() {
-	// Health check cho Render
-	go func() {
-		port := os.Getenv("PORT")
-		if port == "" {
-			port = "8080"
-		}
-		log.Printf("Listening on port %s to satisfy Render health check...", port)
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("Bot is running!"))
-		})
-		if err := http.ListenAndServe(":"+port, nil); err != nil {
-			log.Fatal(err)
-		}
-	}()
-
 	_ = godotenv.Load()
 	token := os.Getenv("TELEGRAM_TOKEN")
 	apiURL = os.Getenv("API_URL")
+	// Chạy ngầm nhiệm vụ Ping API cứ 10 phút/lần
+	go keepAliveService(apiURL, "API-Service")
+	webhookURL := os.Getenv("WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = os.Getenv("RENDER_EXTERNAL_URL")
+	}
+	port := os.Getenv("PORT")
+
+	if port == "" {
+		port = "8080"
+	}
 	if apiURL == "" {
 		// [Update] Cảnh báo nếu thiếu API URL
 		log.Println("[CONFIG WARN] API_URL is empty, defaulting to localhost (This will fail on Render!)")
 		apiURL = "http://localhost:8080"
-	} else {
-		log.Printf("[CONFIG INFO] Using API_URL: %s", apiURL)
 	}
 
 	bot, err := tgbotapi.NewBotAPI(token)
@@ -55,53 +49,116 @@ func main() {
 	bot.Debug = true
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	_, err = bot.Request(tgbotapi.DeleteWebhookConfig{})
-	if err != nil {
-		log.Printf("Lỗi xóa webhook: %v", err)
+	// Kênh nhận tin nhắn (Updates Channel)
+	var updates tgbotapi.UpdatesChannel
+
+	// --- LOGIC CHUYỂN ĐỔI WEBHOOK / POLLING ---
+	if webhookURL != "" {
+		// >>> CHẾ ĐỘ WEBHOOK (Chạy trên Render) <<<
+		log.Printf("[MODE] Running in WEBHOOK mode. URL: %s", webhookURL)
+
+		// 1. Cấu hình Webhook lên Telegram Server
+		// Lưu ý: Telegram yêu cầu đường dẫn phải HTTPS
+		wh, _ := tgbotapi.NewWebhook(webhookURL + "/webhook")
+		_, err = bot.Request(wh)
+		if err != nil {
+			log.Fatal("Lỗi thiết lập Webhook:", err)
+		}
+
+		// 2. Lấy info webhook để confirm
+		info, err := bot.GetWebhookInfo()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if info.LastErrorDate != 0 {
+			log.Printf("Telegram Webhook Last Error: %s", info.LastErrorMessage)
+		}
+
+		// 3. Tạo Handler lắng nghe từ Telegram
+		// Đường dẫn này khớp với phần cấu hình NewWebhook ở trên
+		updates = bot.ListenForWebhook("/webhook")
+
+		// 4. Khởi chạy HTTP Server
+		// Server này vừa nhận Webhook từ Telegram, vừa health check cho Render
+		go func() {
+			// Route health check đơn giản
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte("Bot is running in Webhook mode!"))
+			})
+
+			// tgbotapi.ListenForWebhook tự động đăng ký handler vào http.DefaultServeMux
+			// nên ta chỉ cần start server
+			log.Printf("Listening on port %s for Webhook...", port)
+			if err := http.ListenAndServe(":"+port, nil); err != nil {
+				log.Fatal(err)
+			}
+		}()
+
+	} else {
+		// >>> CHẾ ĐỘ POLLING (Chạy Local) <<<
+		log.Printf("[MODE] Running in POLLING mode (No WEBHOOK_URL found)")
+
+		// 1. Xóa Webhook cũ (nếu có) để chuyển về Polling
+		_, err = bot.Request(tgbotapi.DeleteWebhookConfig{})
+		if err != nil {
+			log.Printf("Lỗi xóa webhook: %v", err)
+		}
+
+		// 2. Tạo config Polling
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
+		updates = bot.GetUpdatesChan(u)
+
+		// 3. Vẫn chạy một server ảo để health check (nếu chạy docker local)
+		go func() {
+			log.Printf("Listening on port %s (Dummy Server for Health Check)...", port)
+			http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte("Bot is running in Polling mode!"))
+			})
+			http.ListenAndServe(":"+port, nil)
+		}()
 	}
 
 	// Bắt đầu chạy lịch trình gửi tin 7h sáng/tối
 	go startScheduler(bot)
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := bot.GetUpdatesChan(u)
 
 	for update := range updates {
 		if update.Message == nil {
 			continue
 		}
 
-		text := update.Message.Text
-		userID := fmt.Sprintf("%d", update.Message.From.ID)
-		chatID := update.Message.Chat.ID
+		go func(update tgbotapi.Update) {
+			text := update.Message.Text
+			userID := fmt.Sprintf("%d", update.Message.From.ID)
+			chatID := update.Message.Chat.ID
 
-		log.Printf("[BOT RECV] User: %s, Text: %s", userID, text) // [Update] Log tin nhắn đến
+			log.Printf("[BOT RECV] User: %s, Text: %s", userID, text) // [Update] Log tin nhắn đến
 
-		if strings.Contains(strings.ToLower(text), "báo cáo") {
-			handleReport(bot, chatID, userID)
-			continue
-		}
+			if strings.Contains(strings.ToLower(text), "báo cáo") {
+				handleReport(bot, chatID, userID)
+				return
+			}
 
-		if strings.Contains(strings.ToLower(text), "giá vàng") {
-			handlePrice(bot, chatID, "gold")
-			continue
-		}
-		if strings.Contains(strings.ToLower(text), "giá bạc") {
-			handlePrice(bot, chatID, "silver")
-			continue
-		}
+			if strings.Contains(strings.ToLower(text), "giá vàng") {
+				handlePrice(bot, chatID, "gold")
+				return
+			}
+			if strings.Contains(strings.ToLower(text), "giá bạc") {
+				handlePrice(bot, chatID, "silver")
+				return
+			}
 
-		// Test gửi thông báo định kỳ
-		if text == "/test_noti" {
-			bot.Send(tgbotapi.NewMessage(chatID, "🚀 Đang chạy thử tính năng gửi Noti..."))
-			sendDailyUpdate(bot)
-			continue
-		}
+			// Test gửi thông báo định kỳ
+			if text == "/test_noti" {
+				bot.Send(tgbotapi.NewMessage(chatID, "🚀 Đang chạy thử tính năng gửi Noti..."))
+				sendDailyUpdate(bot)
+				return
+			}
 
-		txs, _ := service.ParseTransactionText(text)
-		if len(txs) == 0 {
-			// (Giữ nguyên phần helpMsg của bạn ở đây...)
-			helpMsg := `Không hiểu lệnh. Vui lòng nhập đúng cú pháp.
+			txs, _ := service.ParseTransactionText(text)
+			if len(txs) == 0 {
+				// (Giữ nguyên phần helpMsg của bạn ở đây...)
+				helpMsg := `Không hiểu lệnh. Vui lòng nhập đúng cú pháp.
 					👋 Chào bạn! Tôi là Bot quản lý tài chính.
 
 					📖 *HƯỚNG DẪN SỬ DỤNG:*
@@ -123,27 +180,29 @@ func main() {
 					3️⃣ *Tiện ích khác:*
 					- giá vàng, giá bạc
 					- báo cáo`
-			bot.Send(tgbotapi.NewMessage(chatID, helpMsg))
-			continue
-		}
-
-		count := 0
-		var details []string
-		for _, tx := range txs {
-			tx.UserID = userID
-			if sendTransactionToAPI(tx) {
-				count++
-				details = append(details, fmt.Sprintf("%s %.2f %s", tx.Type, tx.Amount, tx.Currency))
-			} else {
-				// [Update] Báo lỗi ngay cho user nếu lưu thất bại
-				bot.Send(tgbotapi.NewMessage(chatID, "❌ Lỗi hệ thống: Không thể lưu giao dịch."))
+				bot.Send(tgbotapi.NewMessage(chatID, helpMsg))
+				return
 			}
-		}
 
-		if count > 0 {
-			reply := fmt.Sprintf("✅ Đã lưu %d giao dịch:\n%s", count, strings.Join(details, "\n"))
-			bot.Send(tgbotapi.NewMessage(chatID, reply))
-		}
+			count := 0
+			var details []string
+			for _, tx := range txs {
+				tx.UserID = userID
+				if sendTransactionToAPI(tx) {
+					count++
+					details = append(details, fmt.Sprintf("%s %.2f %s", tx.Type, tx.Amount, tx.Currency))
+				} else {
+					// [Update] Báo lỗi ngay cho user nếu lưu thất bại
+					bot.Send(tgbotapi.NewMessage(chatID, "❌ Lỗi hệ thống: Không thể lưu giao dịch."))
+				}
+			}
+
+			if count > 0 {
+				reply := fmt.Sprintf("✅ Đã lưu %d giao dịch:\n%s", count, strings.Join(details, "\n"))
+				bot.Send(tgbotapi.NewMessage(chatID, reply))
+			}
+		}(update)
+
 	}
 }
 
@@ -451,4 +510,29 @@ func sendDailyUpdate(bot *tgbotapi.BotAPI) {
 		}
 	}
 	log.Printf("[SCHEDULER] Đã gửi thông báo cho %d người dùng.", count)
+}
+
+// --- GIỮ BOT KHÔNG NGỦ ---
+func keepAliveService(targetURL string, serviceName string) {
+	if targetURL == "" {
+		log.Printf("[%s] Không có URL để ping. Bỏ qua.", serviceName)
+		return
+	}
+
+	// Ping mỗi 10 phút (Render ngủ sau 15 phút)
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("[%s] Đã kích hoạt chế độ Keep-Alive tới: %s", serviceName, targetURL)
+
+	for range ticker.C {
+		resp, err := http.Get(targetURL)
+		if err != nil {
+			log.Printf("[%s] Ping thất bại: %v", serviceName, err)
+		} else {
+			// Quan trọng: Phải đóng Body để tránh rò rỉ bộ nhớ
+			resp.Body.Close()
+			log.Printf("[%s] Ping thành công! (Status: %s)", serviceName, resp.Status)
+		}
+	}
 }
