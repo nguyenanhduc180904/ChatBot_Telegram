@@ -381,11 +381,19 @@ func handlePrice(bot *tgbotapi.BotAPI, chatID int64, requestType string) {
 	// SECTION: BẠC
 	if requestType == "silver" {
 		convertedSilver := r.SilverUSD * r.UsdVND * OunceToTael
+		// Tính toán giá theo Kg (1 cây = 37.5g = 0.0375 kg)
+		// Công thức: Giá 1 cây / 0.0375 = Giá 1 kg
+		convertedSilverKg := convertedSilver / 0.0375
+		vnSilverKg := r.VnSilver / 0.0375
 
 		msgBuf.WriteString("ww BẠC (SILVER)\n")
-		msgBuf.WriteString(fmt.Sprintf("• Thế giới: %s USD/oz\n", formatUSD(r.SilverUSD)))
-		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/cây\n", formatCurrency(convertedSilver)))
-		msgBuf.WriteString(fmt.Sprintf("• VN (Thực tế): %s đ/cây\n", formatCurrency(r.VnSilver)))
+		// Thêm hiển thị tỷ giá USD
+		msgBuf.WriteString(fmt.Sprintf("• Thế giới: %s USD/oz , %s đ/USD\n", formatUSD(r.SilverUSD), formatCurrency(r.UsdVND)))
+		// Thêm hiển thị giá theo kg cho phần Quy đổi
+		msgBuf.WriteString(fmt.Sprintf("• Quy đổi: %s đ/cây , %s đ/kg\n", formatCurrency(convertedSilver), formatCurrency(convertedSilverKg)))
+
+		// Thêm hiển thị giá theo kg cho phần VN thực tế
+		msgBuf.WriteString(fmt.Sprintf("• VN (Thực tế): %s đ/cây , %s đ/kg\n", formatCurrency(r.VnSilver), formatCurrency(vnSilverKg)))
 
 		// Chênh lệch Bạc
 		diffSilver := r.VnSilver - convertedSilver
